@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Test
+        run: pytest -q
+
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  cross-check:
+    name: next-run agrees with croniter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e . croniter
+
+      # Independent oracle: for a spread of expressions, our next_run must agree
+      # with croniter (a mature, widely-used cron library) over several
+      # iterations. This is the strongest possible check on the core algorithm —
+      # a second implementation, not our own fixtures.
+      - name: Compare against croniter
+        run: |
+          python - <<'PY'
+          from datetime import datetime
+          from croniter import croniter
+          from cronscope.expression import CronExpression
+
+          exprs = [
+              "*/15 * * * *", "0 0 * * *", "30 2 * * *", "0 9 * * 1-5",
+              "0 0 13 * 5", "0 0 13 * *", "0 0 * * 5", "0 0 1 */2 *",
+              "15 14 1 * *", "0 22 * * 1-5", "5 0 * 8 *", "0 0,12 1 */2 *",
+              "0 0 * * 0", "0 0 * * 7", "23 0-20/2 * * *", "0 4 8-14 * *",
+          ]
+          start = datetime(2026, 1, 1, 0, 0)
+          bad = 0
+          for e in exprs:
+              ours = CronExpression.parse(e).next_runs(start, 12)
+              it = croniter(e, start)
+              theirs = [it.get_next(datetime) for _ in range(12)]
+              if ours != theirs:
+                  bad += 1
+                  print(f"MISMATCH {e!r}")
+                  for o, t in zip(ours, theirs):
+                      mark = "" if o == t else "  <-- differs"
+                      print(f"  ours={o}  croniter={t}{mark}")
+          if bad:
+              raise SystemExit(f"{bad} expression(s) disagreed with croniter")
+          print(f"all {len(exprs)} expressions agree with croniter over 12 iterations")
+          PY
+
+  demo:
+    name: CLI end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - name: Explain, lint, and render
+        run: |
+          set -euo pipefail
+          cronscope --explain "0 0 13 * 5" | grep -q "EITHER"
+
+          printf '0 0 * * * /a\n0 0 * * * /b\n0 0 * * * /c\n' > messy.cron
+          # a midnight collision is a warning; default --fail-on error => exit 0
+          cronscope messy.cron
+          # but --fail-on warning must catch it
+          if cronscope messy.cron --fail-on warning; then
+            echo "expected non-zero exit on a collision at --fail-on warning"; exit 1
+          fi
+
+          printf '0 0 30 2 * /never\n' | cronscope - --fail-on error && {
+            echo "expected non-zero exit for an impossible schedule"; exit 1; } || true
+
+          cronscope messy.cron --svg out.svg
+          python -c "import xml.etree.ElementTree as ET; ET.parse('out.svg')"
+          echo "ok"
