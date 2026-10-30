@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cronscope: see when your crontab really runs</title>
+<meta name="description" content="Paste a crontab and see its week: when each job really runs, schedules that never fire, the day-of-month/day-of-week trap and the midnight stampede. Runs in your browser; nothing is uploaded.">
+<link rel="canonical" href="https://rootx22.github.io/cronscope/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://rootx22.github.io/cronscope/">
+<meta property="og:title" content="cronscope: see when your crontab really runs">
+<meta property="og:description" content="Paste a crontab, see its week as a heatmap, and catch the schedules that never fire. Runs in your browser.">
+<meta property="og:image" content="https://rootx22.github.io/cronscope/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230d1117'/%3E%3Crect x='3' y='3' width='4' height='4' fill='%23006d32'/%3E%3Crect x='9' y='3' width='4' height='4' fill='%2339d353'/%3E%3Crect x='3' y='9' width='4' height='4' fill='%23f2c14e'/%3E%3Crect x='9' y='9' width='4' height='4' fill='%23ff5f57'/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --surface: #161b22;
+    --raised: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --green: #39d353;
+    --green-deep: #238636;
+    --warning: #f2c14e;
+    --error: #ff5f57;
+    --info: #58a6ff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 var(--sans);
+  }
+  a { color: var(--info); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, textarea, input[type="text"] { font-family: var(--mono); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; }
+
+  header.top {
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  header.top .wrap {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding-block: 12px;
+  }
+  .brand { color: var(--text); font: 600 17px var(--mono); letter-spacing: -0.2px; }
+  .brand span { color: var(--green); }
+  nav { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  nav a { color: var(--muted); font-size: 14px; }
+  .star {
+    color: var(--text) !important; border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 10px; background: var(--raised); white-space: nowrap;
+  }
+  .star:hover { border-color: var(--muted); text-decoration: none !important; }
+  .star b { font-variant-numeric: tabular-nums; font-weight: 600; margin-inline-start: 4px; }
+
+  .intro { padding-block: 34px 18px; max-width: 760px; }
+  h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.2; margin: 0 0 12px; text-wrap: balance; letter-spacing: -0.5px; }
+  h2 { font-size: 18px; margin: 0 0 6px; }
+  .intro p { margin: 0 0 10px; color: #c9d1d9; }
+  .private { color: var(--muted) !important; font-size: 14px; }
+  .intro code, .hint code { background: var(--raised); padding: 1px 5px; border-radius: 4px; font-size: 0.92em; }
+
+  .workspace {
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .workspace { grid-template-columns: minmax(0, 1fr); } }
+  .panel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px;
+  }
+  .panel-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    flex-wrap: wrap; margin-bottom: 10px;
+  }
+  .panel-head > label { font-weight: 600; }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .check { color: var(--muted); font-size: 13px; display: flex; gap: 6px; align-items: center; }
+  button {
+    font: 13px var(--sans); color: var(--text); background: var(--raised);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--green-deep); border-color: #2ea043; font-weight: 600; }
+  button.primary:hover { background: #2ea043; }
+  textarea {
+    width: 100%; min-height: 380px; resize: vertical; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 12px;
+    font-size: 13px; line-height: 1.6; tab-size: 4; white-space: pre; overflow: auto;
+  }
+  textarea:focus, input[type="text"]:focus { outline: 2px solid var(--info); outline-offset: -1px; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  #share-note { color: var(--muted); font-size: 13px; }
+
+  .status { color: var(--muted); margin: 0; }
+  .status.failed { color: var(--error); }
+  .summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip {
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 13px;
+    font-variant-numeric: tabular-nums; background: var(--raised);
+  }
+  .chip.error { color: var(--error); border-color: #5c2a2a; }
+  .chip.warning { color: var(--warning); border-color: #5a4a1e; }
+  .chip.info { color: var(--info); border-color: #1f3d63; }
+  .chip.clean { color: var(--green); border-color: #1b4d2a; }
+
+  .issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .issue {
+    border: 1px solid var(--border); border-inline-start: 3px solid var(--muted);
+    border-radius: 6px; padding: 9px 12px; background: var(--raised);
+  }
+  .issue.error { border-inline-start-color: var(--error); }
+  .issue.warning { border-inline-start-color: var(--warning); }
+  .issue.info { border-inline-start-color: var(--info); }
+  .issue-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .level { font: 600 11px var(--mono); letter-spacing: 0.6px; text-transform: uppercase; }
+  .issue.error .level { color: var(--error); }
+  .issue.warning .level { color: var(--warning); }
+  .issue.info .level { color: var(--info); }
+  .line-link {
+    font: 12px var(--mono); color: var(--muted); background: none; border: none; padding: 0;
+    text-decoration: underline dotted; cursor: pointer;
+  }
+  .line-link:hover { color: var(--text); }
+  .issue .message { font-weight: 600; }
+  .issue .detail { color: var(--muted); font-size: 13.5px; margin-top: 3px; }
+  .issue pre { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
+
+  section.block { margin-top: 30px; }
+  .hint { color: var(--muted); margin: 0 0 12px; font-size: 14px; max-width: 760px; }
+  .heatmap-frame { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+  .heatmap-frame img { display: block; min-width: 760px; width: 100%; height: auto; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: start; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; background: var(--surface); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.num { color: var(--muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td code { white-space: nowrap; }
+  td.command code { color: #c9d1d9; display: inline-block; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+  td.when { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .never { color: var(--error); }
+  .boot { color: var(--muted); }
+
+  #explain-form { display: flex; gap: 8px; flex-wrap: wrap; max-width: 560px; }
+  #explain-form input {
+    flex: 1 1 220px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: 14px;
+  }
+  #explain-out { margin-top: 12px; font-size: 14px; }
+  #explain-out ul { margin: 6px 0 0; padding-inline-start: 18px; font-variant-numeric: tabular-nums; }
+  .note { color: var(--warning); }
+
+  .cli pre {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; overflow-x: auto; font-size: 13px; margin: 0 0 10px;
+  }
+  footer { border-top: 1px solid var(--border); margin-top: 40px; }
+  footer .wrap { padding-block: 18px; color: var(--muted); font-size: 13px; display: flex; gap: 6px 16px; flex-wrap: wrap; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./">cron<span>scope</span></a>
+    <nav>
+      <a href="https://github.com/RootX22/cronscope#install">Install the CLI</a>
+      <a class="star" href="https://github.com/RootX22/cronscope">Star on GitHub<b id="stars"></b></a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="intro">
+    <h1>See when your crontab really runs</h1>
+    <p>Paste a crontab. cronscope predicts each job's next runs, draws the week as a heatmap, and flags the mistakes behind silent incidents: schedules that never fire, the day-of-month/day-of-week trap, the midnight stampede and the unescaped <code>%</code>.</p>
+    <p class="private">Everything runs in this page. Your crontab is not sent anywhere.</p>
+  </section>
+
+  <div class="workspace">
+    <section class="panel">
+      <div class="panel-head">
+        <label for="crontab">Crontab</label>
+        <div class="tools">
+          <label class="check"><input type="checkbox" id="system"> System crontab (user column)</label>
+          <button id="example" type="button">Example</button>
+          <button id="clear" type="button">Clear</button>
+        </div>
+      </div>
+      <textarea id="crontab" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="status"></textarea>
+      <div class="actions">
+        <button id="share" type="button" class="primary">Copy share link</button>
+        <span id="share-note" role="status"></span>
+      </div>
+    </section>
+
+    <section class="panel" aria-live="polite">
+      <p id="status" class="status">Loading Python in your browser. About 10&nbsp;MB the first time, cached after that.</p>
+      <div id="summary" class="summary" hidden></div>
+      <ol id="issues" class="issues"></ol>
+    </section>
+  </div>
+
+  <section class="block" id="week" hidden>
+    <h2>The week</h2>
+    <p class="hint">One cell per hour, Monday to Sunday. The hotter the colour, the more jobs fire in that hour; a red ring marks a minute where three or more jobs start together.</p>
+    <div class="heatmap-frame"><img id="heatmap" alt="Weekly heatmap of the crontab: one cell per hour, coloured by how many jobs fire in it"></div>
+  </section>
+
+  <section class="block" id="runs-section" hidden>
+    <h2>Next runs</h2>
+    <p class="hint">In your local time.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Line</th><th>Schedule</th><th>Command</th><th>Next runs</th></tr></thead>
+        <tbody id="runs"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Explain one expression</h2>
+    <p class="hint">Try <code>0 0 13 * 5</code>: it reads like Friday the 13th, and cron runs it every Friday and on every 13th.</p>
+    <form id="explain-form">
+      <input type="text" id="expr" value="0 0 13 * 5" spellcheck="false" autocomplete="off" aria-label="Cron expression">
+      <button type="submit">Explain</button>
+    </form>
+    <div id="explain-out" aria-live="polite"></div>
+  </section>
+
+  <section class="block cli">
+    <h2>The same checks in your terminal and CI</h2>
+    <pre><code>pip install git+https://github.com/RootX22/cronscope.git
+crontab -l | cronscope -
+cronscope /etc/crontab --system --fail-on warning
+cronscope mycron --svg week.svg</code></pre>
+    <p class="hint">Standard library only, exit codes for CI, MIT licensed. <a href="https://github.com/RootX22/cronscope">Source, docs and the list of what it cannot see</a>.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Built by <a href="https://github.com/RootX22">Mohamed Mohsen Shehata</a></span>
+    <span>Runs cronscope with <a href="https://pyodide.org/">Pyodide</a></span>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js"></script>
+<script>
+"use strict";
+
+const SAMPLE = `# Nightly maintenance on app-01
+MAILTO=ops@example.com
+
+# Database backup, then rotate and ship the logs
+0 0 * * * /opt/scripts/backup-db.sh >> /var/log/backup.log 2>&1
+0 0 * * * /usr/sbin/logrotate /etc/logrotate.conf
+0 0 * * * /opt/scripts/ship-logs.sh > /dev/null 2>&1
+
+# Archive last month's invoices on the 30th... of February
+30 2 30 2 * /opt/scripts/archive-invoices.sh
+
+# "Friday the 13th" report: actually runs every 13th AND every Friday
+0 9 13 * 5 /opt/scripts/report.sh > /dev/null 2>&1
+
+# Sync orders every 20 minutes during office hours
+*/20 8-17 * * 1-5 /opt/scripts/sync-orders.sh > /dev/null 2>&1
+
+# Warm the cache at the top of every hour
+0 * * * * /opt/scripts/warm-cache.sh > /dev/null 2>&1
+
+# Dated database dump: the % needs escaping in crontab
+15 3 * * 0 pg_dump app > /backups/app-$(date +%F).sql
+`;
+
+const $ = (id) => document.getElementById(id);
+const area = $("crontab");
+const systemBox = $("system");
+const statusLine = $("status");
+const runFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+});
+
+let analyseInPython = null;
+let explainInPython = null;
+let heatmapUrl = null;
+let pending = 0;
+
+// Python in the browser has no idea of the visitor's time zone, so the page hands it local time.
+function localNow() {
+  const d = new Date();
+  const two = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}:00`;
+}
+
+// A naive ISO timestamp from Python is local time, which is how the Date constructor reads it.
+const formatRun = (iso) => runFormat.format(new Date(iso));
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (key === "class") node.className = value;
+    else node.setAttribute(key, value);
+  }
+  for (const child of children) node.append(child);
+  return node;
+}
+
+function selectLine(lineNo) {
+  const lines = area.value.split("\n");
+  const start = lines.slice(0, lineNo - 1).reduce((sum, line) => sum + line.length + 1, 0);
+  area.focus();
+  area.setSelectionRange(start, start + (lines[lineNo - 1] || "").length);
+}
+
+function lineButton(lineNo) {
+  const button = el("button", { class: "line-link", type: "button" }, `line ${lineNo}`);
+  button.addEventListener("click", () => selectLine(lineNo));
+  return button;
+}
+
+function renderSummary(result) {
+  const counts = { error: result.errors.length, warning: 0, info: 0 };
+  for (const issue of result.issues) counts[issue.level] += 1;
+  const summary = $("summary");
+  const jobs = result.jobs.length;
+  summary.replaceChildren(el("span", { class: "chip" }, `${jobs} job${jobs === 1 ? "" : "s"}`));
+  const labels = { error: ["error", "errors"], warning: ["warning", "warnings"], info: ["note", "notes"] };
+  for (const level of ["error", "warning", "info"]) {
+    if (counts[level]) {
+      const [one, many] = labels[level];
+      summary.append(el("span", { class: `chip ${level}` }, `${counts[level]} ${counts[level] === 1 ? one : many}`));
+    }
+  }
+  if (!counts.error && !counts.warning && !counts.info && jobs) {
+    summary.append(el("span", { class: "chip clean" }, "no issues found"));
+  }
+  summary.hidden = false;
+}
+
+function renderIssues(result) {
+  const items = [
+    ...result.errors.map((e) => ({ level: "error", line: e.line, message: e.message, raw: e.raw })),
+    ...result.issues,
+  ].sort((a, b) => a.line - b.line);
+  $("issues").replaceChildren(...items.map((item) => {
+    const card = el("li", { class: `issue ${item.level}` },
+      el("div", { class: "issue-head" },
+        el("span", { class: "level" }, item.raw ? "parse error" : item.level),
+        lineButton(item.line)),
+      el("div", { class: "message" }, item.message));
+    if (item.detail) card.append(el("div", { class: "detail" }, item.detail));
+    if (item.raw) card.append(el("pre", {}, item.raw));
+    return card;
+  }));
+}
+
+function renderHeatmap(svg, hasJobs) {
+  if (heatmapUrl) URL.revokeObjectURL(heatmapUrl);
+  // As an image, the SVG cannot run anything, whatever a shared link puts in the crontab.
+  heatmapUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+  $("heatmap").src = heatmapUrl;
+  $("week").hidden = !hasJobs;
+}
+
+function renderRuns(jobs) {
+  $("runs").replaceChildren(...jobs.map((job) => {
+    let when;
+    if (job.reboot) when = el("span", { class: "boot" }, "once, when cron starts");
+    else if (!job.runs.length) when = el("span", { class: "never" }, "never");
+    else when = job.runs.map(formatRun).join(" · ");
+    return el("tr", {},
+      el("td", { class: "num" }, String(job.line)),
+      el("td", {}, el("code", {}, job.expr)),
+      el("td", { class: "command" }, el("code", { title: job.command }, job.command)),
+      el("td", { class: "when" }, when));
+  }));
+  $("runs-section").hidden = !jobs.length;
+}
+
+function analyse() {
+  if (!analyseInPython) return;
+  try {
+    const result = JSON.parse(analyseInPython(area.value, systemBox.checked, localNow()));
+    statusLine.hidden = true;
+    renderSummary(result);
+    renderIssues(result);
+    renderHeatmap(result.svg, result.jobs.length > 0);
+    renderRuns(result.jobs);
+  } catch (error) {
+    statusLine.hidden = false;
+    statusLine.className = "status failed";
+    statusLine.textContent = `cronscope could not analyse this input: ${error.message}`;
+  }
+}
+
+function scheduleAnalysis() {
+  clearTimeout(pending);
+  pending = setTimeout(analyse, 250);
+}
+
+function explain(event) {
+  event.preventDefault();
+  if (!explainInPython) return;
+  const out = $("explain-out");
+  const result = JSON.parse(explainInPython($("expr").value, localNow()));
+  if (result.error) {
+    out.replaceChildren(el("span", { class: "never" }, result.error));
+  } else if (result.reboot) {
+    out.replaceChildren("Runs once when cron starts (@reboot); it has no scheduled time.");
+  } else if (!result.runs.length) {
+    out.replaceChildren(el("span", { class: "never" }, "This schedule never runs: no date matches it."));
+  } else {
+    out.replaceChildren();
+    if (result.either) {
+      out.append(el("div", { class: "note" },
+        "Day-of-month and day-of-week are both set, so it runs when EITHER matches."));
+    }
+    out.append(el("div", {}, `Next ${result.runs.length} runs:`),
+      el("ul", {}, ...result.runs.map((iso) => el("li", {}, formatRun(iso)))));
+  }
+}
+
+// Share links carry the crontab in the fragment, which browsers never send to the server.
+function encodeShare(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeShare(token) {
+  const binary = atob(token.replace(/-/g, "+").replace(/_/g, "/"));
+  return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
+}
+
+function readShareLink() {
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (!params.has("c")) return false;
+  try {
+    area.value = decodeShare(params.get("c"));
+    systemBox.checked = params.get("system") === "1";
+    return true;
+  } catch {
+    // A truncated or edited link is not worth an error box; the example takes its place.
+    return false;
+  }
+}
+
+async function copyShareLink() {
+  const params = new URLSearchParams({ c: encodeShare(area.value) });
+  if (systemBox.checked) params.set("system", "1");
+  history.replaceState(null, "", `#${params}`);
+  const note = $("share-note");
+  try {
+    await navigator.clipboard.writeText(location.href);
+    note.textContent = "Link copied. It contains the crontab itself, so check it before you share.";
+  } catch {
+    note.textContent = "The link is in the address bar. It contains the crontab itself.";
+  }
+}
+
+async function showStars() {
+  try {
+    const response = await fetch("https://api.github.com/repos/RootX22/cronscope");
+    if (!response.ok) return;
+    const { stargazers_count: stars } = await response.json();
+    $("stars").textContent = ` ${stars}`;
+  } catch {
+    // The count is decoration; the button works without it.
+  }
+}
+
+async function startPython() {
+  const pyodide = await loadPyodide();
+  const [archive, bridge] = await Promise.all([
+    fetch("cronscope.zip").then((r) => r.arrayBuffer()),
+    fetch("playground.py").then((r) => r.text()),
+  ]);
+  pyodide.unpackArchive(archive, "zip");
+  pyodide.runPython("import os, sys; sys.path.insert(0, os.getcwd())");
+  pyodide.runPython(bridge);
+  analyseInPython = pyodide.globals.get("analyse");
+  explainInPython = pyodide.globals.get("explain");
+}
+
+if (!readShareLink()) area.value = SAMPLE;
+area.addEventListener("input", scheduleAnalysis);
+systemBox.addEventListener("change", analyse);
+$("example").addEventListener("click", () => { area.value = SAMPLE; systemBox.checked = false; analyse(); });
+$("clear").addEventListener("click", () => { area.value = ""; analyse(); area.focus(); });
+$("share").addEventListener("click", copyShareLink);
+$("explain-form").addEventListener("submit", explain);
+showStars();
+
+startPython().then(() => {
+  analyse();
+  $("explain-form").requestSubmit();
+}).catch((error) => {
+  statusLine.className = "status failed";
+  statusLine.textContent = `Python could not start in this browser (${error.message}). Reload to try again, or use the CLI below.`;
+});
+</script>
+</body>
+</html>
