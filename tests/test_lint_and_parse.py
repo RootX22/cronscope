@@ -85,6 +85,12 @@ def test_unescaped_percent_flagged():
     assert "percent-literal" in rules("0 0 * * * echo %Y >/dev/null\n")
 
 
+def test_unescaped_percent_advice_shows_the_format_as_typed():
+    issues = lint(parse_crontab("0 0 * * * echo %Y >/dev/null\n"), now=NOW)
+    [issue] = [i for i in issues if i.rule == "percent-literal"]
+    assert "date +%Y." in issue.detail
+
+
 def test_escaped_percent_not_flagged():
     assert "percent-literal" not in rules("0 0 * * * echo \\%Y >/dev/null\n")
 

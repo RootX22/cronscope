@@ -127,7 +127,7 @@ def _percent_unescaped(job: Job) -> list[Issue]:
             message="Unescaped '%' in command",
             detail=("cron converts an unescaped '%' to a newline and passes the "
                     "remainder as stdin. This breaks date formats like "
-                    "date +%%Y. Escape each '%' as '\\%'."),
+                    "date +%Y. Escape each '%' as '\\%'."),
         )]
     return []
 
