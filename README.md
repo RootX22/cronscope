@@ -10,6 +10,10 @@ the mistakes that cause silent incidents, and renders the whole week as a
 heatmap so you can *see* the midnight stampede instead of discovering it in a
 load graph.
 
+**[Try it in your browser](https://rootx22.github.io/cronscope/)**: paste a crontab
+and see its week. It runs cronscope itself through Pyodide, so nothing you paste
+leaves the page.
+
 <p align="center">
   <img src="assets/example.svg" alt="Weekly cron heatmap: green baseline with a red-ringed column of collisions at midnight" width="90%">
 </p>
